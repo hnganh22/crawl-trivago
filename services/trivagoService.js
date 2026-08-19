@@ -1,53 +1,47 @@
 import puppeteer from "puppeteer-extra";
 import StealthPlugin from "puppeteer-extra-plugin-stealth";
-import {
-  TIMEOUT,
-  RETRY,
-  REQUEST_DELAY,
-} from "../config/config.js";
+import { TIMEOUT, RETRY, REQUEST_DELAY } from "../config/config.js";
 import { sleep, jitter } from "../utils/sleep.js";
-import {
-  recordSuccess,
-  recordForbidden,
-  shouldTrip,
-  BREAKER_MESSAGE,
-} from "../utils/circuitBreaker.js";
 
 puppeteer.use(StealthPlugin());
 
-const CHROME_PATH =
-    process.env.CHROME_PATH ??
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-
+export const CHROME_PATH = process.env.CHROME_PATH ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+export const HEADLESS = process.env.PUPPETEER_HEADLESS === "1" ? "new" : false;
 const GRAPHQL_BASE_URL = "https://www.trivago.com/graphql";
 
-const HEADLESS =
-    process.env.PUPPETEER_HEADLESS === "1"
-        ? "new"
-        : false;
-
-let browser = null;
-let page = null;
-let bootstrapped = false;
-let runtimeHeaders = {};
-
 /*
- * Sau khi Trivago JS chạy xong, lấy các session-bound header
- * (x-trv-tid, x-trv-connection-id, x-trv-cst, x-trv-sequence-id)
- * từ cookie jar + window globals của page.
+ * Worker gọi hàm này 1 lần duy nhất để sinh session:
+ * - Navigate tới Trivago homepage
+ * - Đợi JS sensor Akamai chạy xong
+ * - Extract cookie + x-trv-* headers từ cookie jar và window globals
  *
- * Mỗi session Chrome tạo giá trị MỚI — không bao giờ dùng giá trị
- * hardcode hoặc từ .env cho các header này.
+ * Trả về object runtimeHeaders để dùng cho các sendGraphQL() sau.
  */
-async function captureRuntimeHeaders() {
-    const cookies = await page.cookies();
+export async function bootstrapPage(page) {
+    await page.setViewport({ width: 1280, height: 800 });
+    try {
+        await page.goto("https://www.trivago.com/vi/", {
+            waitUntil: "networkidle2",
+            timeout: TIMEOUT,
+        });
+    } catch (e) {
+        console.log("[Trivago] Navigation timeout, tiếp tục với page hiện tại");
+    }
 
-    const edgeTid =
-        cookies.find((c) => c.name === "edge_tid")?.value ?? "";
+    await page
+        .waitForFunction(
+            () => typeof window.__TRV_CONFIG__ === "object" && window.__TRV_CONFIG__ !== null,
+            { timeout: TIMEOUT },
+        )
+        .catch(() => console.log("[Trivago] __TRV_CONFIG__ chưa sẵn sàng, tiếp tục"));
+
+    await sleep(jitter(3000, 0.5));
+
+    const cookies = await page.cookies();
+    const edgeTid = cookies.find((c) => c.name === "edge_tid")?.value ?? "";
 
     const windowGlobals = await page.evaluate(() => {
         const out = {};
-
         for (const key of [
             "x-trv-connection-id",
             "x-trv-cst",
@@ -60,7 +54,6 @@ async function captureRuntimeHeaders() {
                 window.__TRV_CONFIG__?.[key],
                 window.__INITIAL_STATE__?.config?.[key],
             ];
-
             for (const v of candidates) {
                 if (typeof v === "string" && v.length > 0) {
                     out[key] = v;
@@ -68,84 +61,34 @@ async function captureRuntimeHeaders() {
                 }
             }
         }
-
         return out;
     });
 
-    runtimeHeaders = {
+    const runtimeHeaders = {
         cookie: cookies.map((c) => `${c.name}=${c.value}`).join("; "),
         "x-trv-tid": edgeTid,
         ...windowGlobals,
     };
-}
-
-async function bootstrap() {
-    if (bootstrapped && page && !page.isClosed()) return;
-
-    if (browser) {
-        await browser.close().catch(() => {});
-        browser = null;
-        page = null;
-    }
-
-    browser = await puppeteer.launch({
-        executablePath: CHROME_PATH,
-        headless: HEADLESS,
-        args: [
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-            "--lang=vi",
-            "--window-size=1280,800",
-        ],
-    });
-
-    page = await browser.newPage();
-    await page.setViewport({ width: 1280, height: 800 });
-
-    try {
-        await page.goto("https://www.trivago.com/vi/", {
-            waitUntil: "domcontentloaded",
-            timeout: TIMEOUT,
-        });
-    } catch (e) {
-        console.log(
-            "[Trivago] Navigation timeout, tiếp tục với page hiện tại",
-        );
-    }
-
-    await sleep(jitter(3000, 0.5));
-
-    await captureRuntimeHeaders();
 
     console.log(
-        `[Trivago] Bootstrap xong — ${runtimeHeaders.cookie?.length ?? 0} chars cookie, tid=${runtimeHeaders["x-trv-tid"]?.slice(0, 8) ?? "?"}`,
+        "[bootstrapPage] runtimeHeaders:",
+        JSON.stringify(runtimeHeaders, null, 2),
     );
 
-    bootstrapped = true;
+    return runtimeHeaders;
 }
 
-export async function shutdown() {
-    if (browser) {
-        await browser.close().catch(() => {});
-        browser = null;
-        page = null;
-        bootstrapped = false;
-        runtimeHeaders = {};
-    }
-}
-
-export async function sendGraphQL(payload, extraHeaders) {
-    await bootstrap();
-
-    const operationName =
-        payload?.operationName ?? "accommodationSearchQuery";
-
+/*
+ * Bắn GraphQL qua page context của Chrome thật.
+ * Caller quản lý page + runtimeHeaders lifecycle.
+ */
+export async function sendGraphQL(page, runtimeHeaders, payload, extraHeaders) {
+    const operationName = payload?.operationName ?? "accommodationSearchQuery";
     const url = `${GRAPHQL_BASE_URL}?${operationName}`;
 
     const headers = {
         "Content-Type": "application/json",
-        Accept:
-            "application/graphql-response+json, application/json",
+        Accept: "application/graphql-response+json, application/json",
         "apollographql-client-name": "hs-web-app",
         "x-trv-app-id": "HS_WEB_APP_WARP",
         ...runtimeHeaders,
@@ -156,20 +99,10 @@ export async function sendGraphQL(payload, extraHeaders) {
         try {
             await sleep(jitter(REQUEST_DELAY));
 
-            if (!page || page.isClosed()) {
-                bootstrapped = false;
-                await bootstrap();
-            }
-
             const { Referer, ...fetchHeaders } = headers;
 
             const result = await page.evaluate(
-                async ({
-                    url,
-                    payload,
-                    fetchHeaders,
-                    referrer,
-                }) => {
+                async ({ url, payload, fetchHeaders, referrer }) => {
                     const res = await fetch(url, {
                         method: "POST",
                         credentials: "include",
@@ -182,93 +115,33 @@ export async function sendGraphQL(payload, extraHeaders) {
                     const text = await res.text();
 
                     let json = null;
-                    try {
-                        json = JSON.parse(text);
-                    } catch {}
+                    try { json = JSON.parse(text); } catch {}
 
                     return { status, text, json };
                 },
-                {
-                    url,
-                    payload,
-                    fetchHeaders,
-                    referrer: Referer ?? null,
-                },
+                { url, payload, fetchHeaders, referrer: Referer ?? null },
+                { timeout: TIMEOUT },
             );
 
             const { status, text, json } = result;
 
+            if (status === 401) {
+                const err = new Error(`HTTP 401: ${text.slice(0, 200)}`);
+                err.code = "AUTH_REQUIRED";
+                throw err;
+            }
             if (status === 403) {
-                recordForbidden();
-
-                if (shouldTrip()) {
-                    await shutdown();
-                    throw new Error(BREAKER_MESSAGE);
-                }
-
-                throw new Error(
-                    "Trivago blocked the request with HTTP 403",
-                );
+                const err = new Error(`HTTP 403: ${text.slice(0, 500)}`);
+                err.code = "BLOCKED";
+                throw err;
             }
-
-            if (status >= 400 && status < 500) {
-                throw new Error(
-                    `HTTP ${status}: ${text.slice(0, 500)}`,
-                );
-            }
-
-            if (status >= 500) {
-                console.log(
-                    `[Trivago] HTTP ${status}: ${text.slice(0, 500)}`,
-                );
-
-                throw new Error(`HTTP ${status}`);
-            }
-
-            if (json?.errors?.length) {
-                const message = json.errors
-                    .map((error) => error.message)
-                    .join("; ");
-
-                throw new Error(
-                    `[Trivago] GraphQL error: ${message}`,
-                );
-            }
-
-            recordSuccess();
+            if (status >= 400) throw new Error(`HTTP ${status}: ${text.slice(0, 200)}`);
+            if (json?.errors?.length) throw new Error("GraphQL Error");
 
             return json?.data ?? null;
         } catch (error) {
-            console.log(
-                `[Trivago] Attempt ${attempt}/${RETRY}: ${error.message}`,
-            );
-
-            if (error.message === BREAKER_MESSAGE) {
-                throw error;
-            }
-
-            const statusMatch =
-                error.message.match(/HTTP (\d+)/);
-            const status = statusMatch
-                ? parseInt(statusMatch[1])
-                : null;
-
-            const retryableStatus = [
-                408, 429, 500, 502, 503, 504,
-            ];
-
-            const canRetry =
-                status &&
-                retryableStatus.includes(status);
-
-            if (!canRetry) {
-                throw error;
-            }
-
-            if (attempt === RETRY) {
-                throw error;
-            }
-
+            console.log(`[Worker - GraphQL] Lỗi lần ${attempt}/${RETRY}: ${error.message}`);
+            if (attempt === RETRY) throw error;
             await sleep(jitter(1000 * attempt));
         }
     }

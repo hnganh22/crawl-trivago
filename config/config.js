@@ -32,16 +32,6 @@ export const HEADERS = {
     "apollographql-client-name": "hs-web-app",
     "apollographql-client-version": "e328aadc",
     "x-trv-app-id": "HS_WEB_APP_WARP",
-    "User-Agent":
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
-
-    "sec-ch-ua":
-        '"Not;A=Brand";v="8", "Chromium";v="150", "Google Chrome";v="150"',
-    "sec-ch-ua-mobile": "?0",
-    "sec-ch-ua-platform": '"macOS"',
-    "sec-fetch-dest": "empty",
-    "sec-fetch-mode": "cors",
-    "sec-fetch-site": "same-origin",
 };
 
 export const SESSION_HEADERS = {
@@ -85,6 +75,9 @@ export const MAX_DEALS_PER_SEARCH = Number(
     process.env.MAX_DEALS_PER_SEARCH ?? 5,
 );
 
-export const BATCH_SIZE = process.env.BATCH_SIZE
-    ? Number(process.env.BATCH_SIZE)
-    : null;
+const _BATCH_SIZE_RAW = process.env.BATCH_SIZE;
+const _BATCH_SIZE_PARSED = _BATCH_SIZE_RAW ? Number(_BATCH_SIZE_RAW) : NaN;
+export const BATCH_SIZE =
+    Number.isFinite(_BATCH_SIZE_PARSED) && _BATCH_SIZE_PARSED > 0
+        ? _BATCH_SIZE_PARSED
+        : null;

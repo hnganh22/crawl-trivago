@@ -123,7 +123,7 @@ export async function insertHotels(hotels, runDate) {
     console.error(`[HotelService] Insert failed: ${error.message}`);
     throw error;
   } finally {
-    client.release();
+    await client.release();
   }
 }
 
