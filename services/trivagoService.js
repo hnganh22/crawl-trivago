@@ -1,7 +1,7 @@
+import "dotenv/config";
 import axios from "axios";
 import { TIMEOUT, RETRY, REQUEST_DELAY } from "../config/config.js";
 import { sleep, jitter } from "../utils/sleep.js";
-
 const GRAPHQL_BASE_URL = "https://www.trivago.com/graphql";
 
 const DEFAULT_HEADERS = {
