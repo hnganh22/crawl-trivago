@@ -3,10 +3,12 @@ services:
     image: postgres:17
     container_name: trivago-postgres
 
+    env_file: .env
+
     environment:
-      POSTGRES_DB: trivago
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: 123456
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
 
     ports:
       - "5432:5432"
@@ -15,5 +17,5 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
 
-volumes: 
+volumes:
   postgres_data:

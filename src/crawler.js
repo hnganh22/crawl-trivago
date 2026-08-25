@@ -1,14 +1,10 @@
 import { sendGraphQL } from "../services/trivagoService.js";
-
 import {
     buildAccommodationSearchPayload,
     buildAccommodationDealsPayload,
 } from "../config/graphql.js";
 
 import { sleep, jitter } from "../utils/sleep.js";
-
-import { buildRefererUrl } from "../utils/referer.js";
-
 import { MAX_DEALS_PER_SEARCH } from "../config/config.js";
 
 import {
@@ -32,28 +28,26 @@ const isAllowedOta = (name) => {
     );
 };
 
+// Sử dụng trực tiếp URL đã sinh từ link generator
+function getRefererUrl(searchParams) {
+    return searchParams?.url || "https://www.trivago.com/";
+}
+
 class TrivagoCrawler {
-    async crawl(page, runtimeHeaders, searchParams) {
+    async crawl(searchParams) {
         console.log(
             `[Crawler] Bắt đầu tìm kiếm: ${searchParams.destination}`,
         );
 
         const payload = buildAccommodationSearchPayload(searchParams);
-        const referer = buildRefererUrl(searchParams);
+        const referer = getRefererUrl(searchParams);
 
-        const data = await sendGraphQL(
-            page,
-            runtimeHeaders,
-            payload,
-            { Referer: referer },
-        );
+        const data = await sendGraphQL(payload, { Referer: referer });
 
         let accommodations = this.extractResult(data);
-
         const responseRoot = data?.accommodationSearchResponse ?? {};
 
         let requestId = responseRoot.requestId;
-
         let pollData = responseRoot.pollData ?? null;
 
         /*
@@ -69,12 +63,12 @@ class TrivagoCrawler {
 
             console.log(`[Crawler] requestId: ${requestId}`);
 
+            // TRUYỀN THÊM pollData VÀO ĐÂY
             const result = await this.pollSearch(
-                page,
-                runtimeHeaders,
                 requestId,
                 payload.variables,
                 searchParams,
+                pollData
             );
 
             if (!result) {
@@ -93,10 +87,9 @@ class TrivagoCrawler {
         const top = accommodations.slice(0, MAX_DEALS_PER_SEARCH);
 
         await this.enrichWithDeals(
-            page,
-            runtimeHeaders,
             top,
-            searchParams,
+            searchParams, 
+            requestId
         );
 
         return {
@@ -107,15 +100,15 @@ class TrivagoCrawler {
     }
 
     async pollSearch(
-        page,
-        runtimeHeaders,
         requestId,
         variables,
         searchParams,
+        initialPollData = null
     ) {
-        let currentPollData = { requestId };
+        // Tái sử dụng initialPollData nếu có
+        let currentPollData = initialPollData ?? { requestId };
 
-        const referer = buildRefererUrl(searchParams);
+        const referer = getRefererUrl(searchParams);
 
         for (let attempt = 1; attempt <= MAX_POLL_ATTEMPTS; attempt++) {
             console.log(`[Crawler] Poll ${attempt}/${MAX_POLL_ATTEMPTS}`);
@@ -142,8 +135,6 @@ class TrivagoCrawler {
 
             try {
                 const data = await sendGraphQL(
-                    page,
-                    runtimeHeaders,
                     payload,
                     {
                         Referer: referer,
@@ -200,66 +191,83 @@ class TrivagoCrawler {
         return null;
     }
 
-    async enrichWithDeals(
-        page,
-        runtimeHeaders,
-        accommodations,
-        searchParams,
-    ) {
-        const referer = buildRefererUrl(searchParams);
+    async enrichWithDeals(accommodations, searchParams, requestId, concurrency = 3) {
+        const queue = [...accommodations];
 
-        for (const accommodation of accommodations) {
-            const nsid =
-                accommodation.accommodationDetails?.nsid ??
-                accommodation.nsid;
+        const workers = Array.from({ length: concurrency }, async () => {
+            while (queue.length > 0) {
+                const accommodation = queue.shift();
+                if (accommodation) {
+                    await this.fetchDealsFor(accommodation, searchParams, requestId);
+                    await sleep(jitter(DEAL_DELAY));
+                }
+            }
+        });
 
-            if (!nsid?.ns || !nsid?.id) {
-                accommodation.deals = [];
+        await Promise.all(workers);
+    }
 
-                continue;
+    async fetchDealsFor(accommodation, searchParams, requestId) {
+        const referer = getRefererUrl(searchParams);
+        const nsid =
+            accommodation.accommodationDetails?.nsid ?? accommodation.nsid;
+
+        if (!nsid?.ns || !nsid?.id) {
+            accommodation.deals = [];
+            return;
+        }
+
+        const accommodationId = `${nsid.ns}/${nsid.id}`;
+
+        try {
+            const payload = buildAccommodationDealsPayload({
+                accommodationId,
+                checkin: searchParams.checkin,
+                checkout: searchParams.checkout,
+                adults: searchParams.adults,
+                currency: searchParams.currency ?? "VND",
+                requestId: requestId, // ĐÃ BỔ SUNG REQUEST ID
+            });
+
+            const data = await sendGraphQL(
+                payload,
+                { Referer: referer },
+            );
+
+            const deals = data?.getAccommodationDeals?.deals ?? [];
+
+            accommodation.deals = deals.filter((deal) =>
+                isAllowedOta(
+                    deal?.advertiserDetails?.translatedName?.value,
+                ),
+            );
+
+            recordSuccess();
+
+            console.log(
+                `[Crawler] ${
+                    accommodation.accommodationDetails
+                        ?.translatedName?.value ?? accommodationId
+                }: ${accommodation.deals.length}/${deals.length} deals`,
+            );
+        } catch (error) {
+            const isBlocked =
+                error.code === "BLOCKED" ||
+                error.code === "AUTH_REQUIRED";
+
+            if (isBlocked) {
+                recordForbidden();
+
+                if (shouldTrip()) {
+                    throw new Error(BREAKER_MESSAGE);
+                }
             }
 
-            try {
-                const accommodationId = nsid.id;
+            console.log(
+                `[Crawler] Deals failed for ${nsid.id}: ${error.message}`,
+            );
 
-                const payload = buildAccommodationDealsPayload({
-                    accommodationId,
-                    checkin: searchParams.checkin,
-                    checkout: searchParams.checkout,
-                    adults: searchParams.adults,
-                    currency: searchParams.currency ?? "VND",
-                });
-
-                const data = await sendGraphQL(
-                    page,
-                    runtimeHeaders,
-                    payload,
-                    { Referer: referer },
-                );
-
-                const deals = data?.getAccommodationDeals?.deals ?? [];
-
-                accommodation.deals = deals.filter((deal) =>
-                    isAllowedOta(
-                        deal?.advertiserDetails?.translatedName?.value,
-                    ),
-                );
-
-                console.log(
-                    `[Crawler] ${
-                        accommodation.accommodationDetails
-                            ?.translatedName?.value ?? accommodationId
-                    }: ${accommodation.deals.length}/${deals.length} deals`,
-                );
-            } catch (error) {
-                console.log(
-                    `[Crawler] Deals failed for ${nsid.id}: ${error.message}`,
-                );
-
-                accommodation.deals = [];
-            }
-
-            await sleep(jitter(DEAL_DELAY));
+            accommodation.deals = [];
         }
     }
 

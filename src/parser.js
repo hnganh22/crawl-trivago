@@ -105,9 +105,9 @@ function parseDescriptionAmenities(description) {
     found.push("Breakfast");
   }
 
-  if (/free cancellation|miễn phí huỷ|huy mien phi/i.test(text)) {
-    found.push("Free Cancellation");
-  }
+  if (/free cancellation|miễn phí huỷ|miễn phí hủy|huy mien phi|hủy miễn phí/i.test(text)) {
+  found.push("Free Cancellation");
+}
 
   if (/sofa bed|giường sofa|giuong sofa/i.test(text)) {
     found.push("Sofa Bed");
@@ -474,6 +474,9 @@ function parseHotel(hotel, searchParams) {
       hotel.hotelId,
       hotel.id,
       hotel.accommodationId,
+      details?.nsid?.id
+        ? `${details.nsid.ns}-${details.nsid.id}`
+        : null,
     ),
 
     hotel_name: firstValue(

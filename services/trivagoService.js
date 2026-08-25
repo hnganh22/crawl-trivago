@@ -1,148 +1,87 @@
-import puppeteer from "puppeteer-extra";
-import StealthPlugin from "puppeteer-extra-plugin-stealth";
+import axios from "axios";
 import { TIMEOUT, RETRY, REQUEST_DELAY } from "../config/config.js";
 import { sleep, jitter } from "../utils/sleep.js";
 
-puppeteer.use(StealthPlugin());
-
-export const CHROME_PATH = process.env.CHROME_PATH ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-export const HEADLESS = process.env.PUPPETEER_HEADLESS === "1" ? "new" : false;
 const GRAPHQL_BASE_URL = "https://www.trivago.com/graphql";
 
-/*
- * Worker gọi hàm này 1 lần duy nhất để sinh session:
- * - Navigate tới Trivago homepage
- * - Đợi JS sensor Akamai chạy xong
- * - Extract cookie + x-trv-* headers từ cookie jar và window globals
- *
- * Trả về object runtimeHeaders để dùng cho các sendGraphQL() sau.
- */
-export async function bootstrapPage(page) {
-    await page.setViewport({ width: 1280, height: 800 });
+const DEFAULT_HEADERS = {
+  "Content-Type": "application/json",
+  "Accept": "application/graphql-response+json, application/json",
+  "Accept-Language": "vi,en-US;q=0.9,en;q=0.8",
+  "Origin": "https://www.trivago.com",
+  "Referer": "https://www.trivago.com/",
+  "User-Agent":
+    process.env.USER_AGENT ||
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "apollographql-client-name":
+    process.env.TRV_APOLLO_CLIENT_NAME ?? "hs-web-app",
+    "apollographql-client-version":
+    process.env.TRV_APOLLO_CLIENT_VERSION ?? "3bbdda8f",
+    "x-trv-app-id":
+   process.env.TRV_APP_ID ?? "HS_WEB_APP_WARP",
+ };
+
+export async function sendGraphQL(payload, extraHeaders = {}) {
+  const operationName = payload?.operationName ?? "accommodationSearchQuery";
+  const url = `${GRAPHQL_BASE_URL}?${operationName}`;
+
+  const headers = Object.fromEntries(
+    Object.entries({
+      ...DEFAULT_HEADERS,
+      ...(process.env.TRV_COOKIE ? { cookie: process.env.TRV_COOKIE } : {}),
+      ...(process.env.TRV_TID ? { "x-trv-tid": process.env.TRV_TID } : {}),
+      ...extraHeaders,
+    }).filter(([, v]) => v !== "" && v !== undefined && v !== null)
+  );
+
+  for (let attempt = 1; attempt <= RETRY; attempt++) {
     try {
-        await page.goto("https://www.trivago.com/vi/", {
-            waitUntil: "networkidle2",
-            timeout: TIMEOUT,
-        });
-    } catch (e) {
-        console.log("[Trivago] Navigation timeout, tiếp tục với page hiện tại");
+      if (REQUEST_DELAY) {
+        await sleep(jitter ? jitter(REQUEST_DELAY) : REQUEST_DELAY);
+      } // <-- Đã thêm dấu đóng ngoặc nhọn bị thiếu ở đây
+
+      const response = await axios.post(url, payload, {
+        headers,
+        timeout: TIMEOUT || 30000,
+        validateStatus: () => true,
+      });
+
+      const { status, data } = response;
+
+      if (status === 401) {
+        const err = new Error("HTTP 401: Unauthorized");
+        err.code = "AUTH_REQUIRED";
+        throw err;
+      }
+      if (status === 403) {
+        const err = new Error("HTTP 403: Blocked by WAF");
+        err.code = "BLOCKED";
+        throw err;
+      }
+      if (status >= 400) {
+        const preview =
+          typeof data === "string"
+            ? data.slice(0, 200)
+            : JSON.stringify(data).slice(0, 200);
+        throw new Error(`HTTP ${status}: ${preview}`);
+      }
+      if (data?.errors?.length) {
+        const msg = data.errors.map((e) => e.message).join("; ");
+        throw new Error(`GraphQL Error: ${msg}`);
+      }
+
+      return data?.data ?? null;
+    } catch (error) {
+      console.warn(
+        `[Axios - GraphQL] Lỗi lần ${attempt}/${RETRY}: ${error.message}`
+      );
+
+      if (attempt === RETRY) {
+        throw error;
+      }
+
+      const backoff = 1000 * attempt;
+      await sleep(jitter ? jitter(backoff) : backoff);
     }
-
-    await page
-        .waitForFunction(
-            () => typeof window.__TRV_CONFIG__ === "object" && window.__TRV_CONFIG__ !== null,
-            { timeout: TIMEOUT },
-        )
-        .catch(() => console.log("[Trivago] __TRV_CONFIG__ chưa sẵn sàng, tiếp tục"));
-
-    await sleep(jitter(3000, 0.5));
-
-    const cookies = await page.cookies();
-    const edgeTid = cookies.find((c) => c.name === "edge_tid")?.value ?? "";
-
-    const windowGlobals = await page.evaluate(() => {
-        const out = {};
-        for (const key of [
-            "x-trv-connection-id",
-            "x-trv-cst",
-            "x-trv-sequence-id",
-            "x-trv-poll-id",
-            "apollographql-client-version",
-        ]) {
-            const candidates = [
-                window[key],
-                window.__TRV_CONFIG__?.[key],
-                window.__INITIAL_STATE__?.config?.[key],
-            ];
-            for (const v of candidates) {
-                if (typeof v === "string" && v.length > 0) {
-                    out[key] = v;
-                    break;
-                }
-            }
-        }
-        return out;
-    });
-
-    const runtimeHeaders = {
-        cookie: cookies.map((c) => `${c.name}=${c.value}`).join("; "),
-        "x-trv-tid": edgeTid,
-        ...windowGlobals,
-    };
-
-    console.log(
-        "[bootstrapPage] runtimeHeaders:",
-        JSON.stringify(runtimeHeaders, null, 2),
-    );
-
-    return runtimeHeaders;
-}
-
-/*
- * Bắn GraphQL qua page context của Chrome thật.
- * Caller quản lý page + runtimeHeaders lifecycle.
- */
-export async function sendGraphQL(page, runtimeHeaders, payload, extraHeaders) {
-    const operationName = payload?.operationName ?? "accommodationSearchQuery";
-    const url = `${GRAPHQL_BASE_URL}?${operationName}`;
-
-    const headers = {
-        "Content-Type": "application/json",
-        Accept: "application/graphql-response+json, application/json",
-        "apollographql-client-name": "hs-web-app",
-        "x-trv-app-id": "HS_WEB_APP_WARP",
-        ...runtimeHeaders,
-        ...extraHeaders,
-    };
-
-    for (let attempt = 1; attempt <= RETRY; attempt++) {
-        try {
-            await sleep(jitter(REQUEST_DELAY));
-
-            const { Referer, ...fetchHeaders } = headers;
-
-            const result = await page.evaluate(
-                async ({ url, payload, fetchHeaders, referrer }) => {
-                    const res = await fetch(url, {
-                        method: "POST",
-                        credentials: "include",
-                        headers: fetchHeaders,
-                        ...(referrer ? { referrer } : {}),
-                        body: JSON.stringify(payload),
-                    });
-
-                    const status = res.status;
-                    const text = await res.text();
-
-                    let json = null;
-                    try { json = JSON.parse(text); } catch {}
-
-                    return { status, text, json };
-                },
-                { url, payload, fetchHeaders, referrer: Referer ?? null },
-                { timeout: TIMEOUT },
-            );
-
-            const { status, text, json } = result;
-
-            if (status === 401) {
-                const err = new Error(`HTTP 401: ${text.slice(0, 200)}`);
-                err.code = "AUTH_REQUIRED";
-                throw err;
-            }
-            if (status === 403) {
-                const err = new Error(`HTTP 403: ${text.slice(0, 500)}`);
-                err.code = "BLOCKED";
-                throw err;
-            }
-            if (status >= 400) throw new Error(`HTTP ${status}: ${text.slice(0, 200)}`);
-            if (json?.errors?.length) throw new Error("GraphQL Error");
-
-            return json?.data ?? null;
-        } catch (error) {
-            console.log(`[Worker - GraphQL] Lỗi lần ${attempt}/${RETRY}: ${error.message}`);
-            if (attempt === RETRY) throw error;
-            await sleep(jitter(1000 * attempt));
-        }
-    }
+  }
 }

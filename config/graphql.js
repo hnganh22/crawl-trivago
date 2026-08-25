@@ -1,4 +1,4 @@
-// config/graphql.js
+
 
 export const GRAPHQL_URL = "https://www.trivago.com/graphql";
 
@@ -35,7 +35,7 @@ export function buildAccommodationSearchPayload({
   checkout,
   adults = 2,
   currency = "VND",
-  pollData = null, // Thêm để tái sử dụng khi polling
+  pollData = null,
 }) {
   const { ns, id } = parseDestinationId(destinationId);
 
@@ -50,11 +50,6 @@ export function buildAccommodationSearchPayload({
         filter: { sentiment: "POSITIVE" },
         sorting: { searchConcepts: [] },
         pagination: { limit: 2 },
-      },
-      contextAwareContent: {
-        rooms: [{ adults, children: [] }],
-        stayPeriod: { arrival: checkin, departure: checkout },
-        uiv,
       },
       distanceLabelInput: null,
       limitedTimeOfferInput: { arrival: checkin, departure: checkout },
@@ -115,34 +110,49 @@ export function buildAccommodationDealsPayload({
   checkout,
   adults = 2,
   currency = "VND",
-  pollData = null, // Thêm để tái sử dụng khi polling
+  pollData = null,
+  requestId = null,
 }) {
-  // Lấy đúng số cuối nếu ID truyền vào dạng "100-12345" hoặc "12345"
-  const numericAccommodationId = Number(String(accommodationId).split("-").pop());
+  const parts = String(accommodationId).split("/");
+  const ns = parts.length > 1 ? Number(parts[0]) : 100;
+  const numericAccommodationId = Number(parts.pop());
+
+
+  const getAccommodationDealsParams = {
+    accommodationNsid: { ns, id: numericAccommodationId },
+    applicationGroup: "MAIN_WARP",
+    channel: {
+      branded: {
+        isStandardDate: false,
+        stayPeriodSource: { value: 40 },
+      },
+    },
+    currency,
+    rooms: [{ adults, children: [] }],
+    stayPeriod: { arrival: checkin, departure: checkout },
+    limitedTimeOfferInput: { arrival: checkin, departure: checkout },
+    percentiles: { lowerPercentile: 30, upperPercentile: 70 },
+    uiv: [],
+  };
+
+
+  if (requestId) {
+    getAccommodationDealsParams.parentRequestId = requestId;
+  }
 
   return {
     operationName: ACCOMMODATION_DEALS.operationName,
     extensions: ACCOMMODATION_DEALS.extensions,
     variables: {
       pollData,
-      getAccommodationDealsParams: {
-        accommodationNsid: {
-          ns: 100,
-          id: numericAccommodationId,
-        },
-        applicationGroup: "MAIN_WARP",
-        channel: {
-          branded: {
-            isStandardDate: false,
-            stayPeriodSource: { value: 40 },
-          },
-        },
-        currency,
-        rooms: [{ adults, children: [] }],
-        stayPeriod: { arrival: checkin, departure: checkout },
-        uiv: [],
-        limitedTimeOfferInput: { arrival: checkin, departure: checkout },
-        percentiles: { lowerPercentile: 30, upperPercentile: 70 },
+      getAccommodationDealsParams, // Reuse object đã khởi tạo ở trên
+      percentiles: {
+        lowerPercentile: 30,
+        upperPercentile: 70,
+      },
+      limitedTimeOfferInput: {
+        arrival: checkin,
+        departure: checkout,
       },
       shouldIncludeFreeWiFiStatus: false,
       shouldIncludeHotelOffers: false,

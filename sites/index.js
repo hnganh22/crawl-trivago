@@ -1,10 +1,5 @@
-import puppeteer from "puppeteer-extra";
-import StealthPlugin from "puppeteer-extra-plugin-stealth";
-
-puppeteer.use(StealthPlugin());
-
+import axios from "axios";
 import fs from "fs/promises";
-
 import crawler from "../src/crawler.js";
 import parser from "../src/parser.js";
 import { DESTINATION } from "../config/config.js";
@@ -18,11 +13,6 @@ import { createDateRange } from "../utils/date.js";
 import { sleep, jitter } from "../utils/sleep.js";
 import { insertHotels, closePool } from "../services/hotelService.js";
 import { BREAKER_MESSAGE } from "../utils/circuitBreaker.js";
-import {
-    bootstrapPage,
-    CHROME_PATH,
-    HEADLESS,
-} from "../services/trivagoService.js";
 
 const SLEEP_BETWEEN_SEARCHES = 2000;
 const MAX_CONSECUTIVE_BLOCKS = 3;
@@ -31,45 +21,7 @@ const COOLDOWN_MS = 5 * 60 * 1000;
 const INSERT_RETRY = 3;
 const DEADLETTER_PATH = "deadletter.jsonl";
 
-let browser = null;
-let page = null;
-let runtimeHeaders = {};
 
-async function startSession() {
-    if (browser) return;
-
-    browser = await puppeteer.launch({
-        executablePath: CHROME_PATH,
-        headless: HEADLESS,
-        args: [
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-            "--disable-blink-features=AutomationControlled",
-            "--disable-infobars",
-            "--window-size=1280,800",
-            "--lang=vi-VN,vi",
-        ],
-        ignoreDefaultArgs: ["--enable-automation"],
-    });
-
-    page = await browser.newPage();
-
-    runtimeHeaders = await bootstrapPage(page);
-
-    console.log(
-        `[Main] Session ready — cookie ${runtimeHeaders.cookie?.length ?? 0} chars, tid=${runtimeHeaders["x-trv-tid"]?.slice(0, 8) ?? "?"}`,
-    );
-}
-
-async function shutdownBrowser() {
-    if (browser) {
-        await browser.close().catch(() => {});
-    }
-
-    browser = null;
-    page = null;
-    runtimeHeaders = {};
-}
 
 async function insertHotelsWithRetry(hotels, search) {
     let lastErr = null;
@@ -155,8 +107,6 @@ function pickBatch(searches) {
 }
 
 export async function crawlAll() {
-    await startSession();
-
     try {
         const all = createSearches();
 
@@ -186,11 +136,7 @@ export async function crawlAll() {
             );
 
             try {
-                const response = await crawler.crawl(
-                    page,
-                    runtimeHeaders,
-                    search,
-                );
+                const response = await crawler.crawl(search);
 
                 if (!response) {
                     console.log("[Trivago] Không có response");
@@ -258,7 +204,6 @@ export async function crawlAll() {
 
         return allHotels;
     } finally {
-        await shutdownBrowser();
         await closePool();
     }
 }
@@ -266,7 +211,6 @@ export async function crawlAll() {
 async function cleanupAndExit(code = 0) {
     console.log("\n[Main] Đang dọn dẹp tài nguyên...");
     try {
-        await shutdownBrowser();
         await closePool();
         console.log("[Main] Dọn dẹp xong. Thoát.");
         process.exit(code);

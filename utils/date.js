@@ -21,8 +21,9 @@ export function getDateFromOffset(offset) {
 }
 
 export function getCheckoutDate(checkin, stays) {
-  const date = new Date(`${checkin}T00:00:00`);
-
+  //const date = new Date(`${checkin}T00:00:00`);
+  const [year, month, day] = checkin.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
   return formatDate(addDays(date, stays));
 }
 
