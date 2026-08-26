@@ -2,7 +2,6 @@ import { sendGraphQL } from "../services/trivagoService.js";
 import {
     buildAccommodationSearchPayload,
     buildAccommodationDealsPayload,
-    buildItemCardInsights,
 } from "../config/graphql.js";
 
 import { sleep, jitter } from "../utils/sleep.js";
@@ -31,7 +30,7 @@ const isAllowedOta = (name) => {
 
 // Sử dụng trực tiếp URL đã sinh từ link generator
 function getRefererUrl(searchParams) {
-    return searchParams?.url || "https://www.trivago.com/";
+    return searchParams?.url || "https://www.trivago.vn/";
 }
 
 class TrivagoCrawler {
@@ -86,6 +85,14 @@ class TrivagoCrawler {
         console.log(`[Crawler] Có ${accommodations.length} accommodations`);
 
         const top = accommodations.slice(0, MAX_DEALS_PER_SEARCH);
+        //check debug
+        console.log("[Debug Check] Kiểm tra deals của khách sạn đầu tiên trong top:", {
+            id: top[0]?.accommodationDetails?.nsid?.id ?? top[0]?.id,
+            hasDealsField: !!top[0]?.deals,
+            dealsLength: top[0]?.deals?.length ?? 0,
+            rawDeals: top[0]?.deals ?? "Không có trường deals"
+        });
+
 
         await this.enrichWithDeals(
             top,
@@ -219,9 +226,9 @@ class TrivagoCrawler {
         }
 
         const accommodationId = `${nsid.ns}/${nsid.id}`;
+        //console.log(accommodationId);
 
         try {
-            const itemCardInsights = buildItemCardInsights(accommodation.deals);
             const payload = buildAccommodationDealsPayload({
                 accommodationId,
                 checkin: searchParams.checkin,
@@ -229,13 +236,18 @@ class TrivagoCrawler {
                 adults: searchParams.adults,
                 currency: searchParams.currency ?? "VND",
                 requestId: requestId, 
-                itemCardInsights,
+    
             });
 
             const data = await sendGraphQL(
                 payload,
                 { Referer: referer },
             );
+
+            //console.log(` Response deals cho ${accommodationId}:`, {
+            //    hasGetDeals: !!data?.getAccommodationDeals,
+            //   dealsCount: data?.getAccommodationDeals?.deals?.length ?? 0
+            //});
 
             const deals = data?.getAccommodationDeals?.deals ?? [];
 

@@ -2,13 +2,13 @@ import "dotenv/config";
 import axios from "axios";
 import { TIMEOUT, RETRY, REQUEST_DELAY } from "../config/config.js";
 import { sleep, jitter } from "../utils/sleep.js";
-const GRAPHQL_BASE_URL = "https://www.trivago.com/graphql";
+const GRAPHQL_BASE_URL = "https://www.trivago.vn/graphql";
 
 const DEFAULT_HEADERS = {
   "Content-Type": "application/json",
   "Accept": "application/graphql-response+json, application/json",
   "Accept-Language": "vi,en-US;q=0.9,en;q=0.8",
-  "Origin": "https://www.trivago.com",
+  "Origin": "https://www.trivago.vn",
   "User-Agent":
     process.env.USER_AGENT ||
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
