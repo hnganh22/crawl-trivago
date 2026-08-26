@@ -8,7 +8,7 @@ export const ACCOMMODATION_SEARCH = {
     persistedQuery: {
       version: 1,
       sha256Hash:
-        "6440ec202e6dd7b2bee1a0901108974c374b9cd6b7a084cdc1f03993f47ed892",
+        "95d0a3aaed3a83c0ad5cda235d88262e15b890007d903895383b104ffff20612",
     },
   },
 };
@@ -131,8 +131,6 @@ export function buildAccommodationDealsPayload({
     currency,
     rooms: [{ adults, children: [] }],
     stayPeriod: { arrival: checkin, departure: checkout },
-    limitedTimeOfferInput: { arrival: checkin, departure: checkout },
-    percentiles: { lowerPercentile: 30, upperPercentile: 70 },
     uiv: [],
   };
 
