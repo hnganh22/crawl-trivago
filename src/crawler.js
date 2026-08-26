@@ -2,6 +2,7 @@ import { sendGraphQL } from "../services/trivagoService.js";
 import {
     buildAccommodationSearchPayload,
     buildAccommodationDealsPayload,
+    buildItemCardInsights,
 } from "../config/graphql.js";
 
 import { sleep, jitter } from "../utils/sleep.js";
@@ -63,7 +64,7 @@ class TrivagoCrawler {
 
             console.log(`[Crawler] requestId: ${requestId}`);
 
-            // TRUYỀN THÊM pollData VÀO ĐÂY
+            // lỗi
             const result = await this.pollSearch(
                 requestId,
                 payload.variables,
@@ -190,7 +191,7 @@ class TrivagoCrawler {
 
         return null;
     }
-
+//sua di
     async enrichWithDeals(accommodations, searchParams, requestId, concurrency = 3) {
         const queue = [...accommodations];
 
@@ -220,13 +221,15 @@ class TrivagoCrawler {
         const accommodationId = `${nsid.ns}/${nsid.id}`;
 
         try {
+            const itemCardInsights = buildItemCardInsights(accommodation.deals);
             const payload = buildAccommodationDealsPayload({
                 accommodationId,
                 checkin: searchParams.checkin,
                 checkout: searchParams.checkout,
                 adults: searchParams.adults,
                 currency: searchParams.currency ?? "VND",
-                requestId: requestId, // ĐÃ BỔ SUNG REQUEST ID
+                requestId: requestId, 
+                itemCardInsights,
             });
 
             const data = await sendGraphQL(

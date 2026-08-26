@@ -9,7 +9,6 @@ const DEFAULT_HEADERS = {
   "Accept": "application/graphql-response+json, application/json",
   "Accept-Language": "vi,en-US;q=0.9,en;q=0.8",
   "Origin": "https://www.trivago.com",
-  "Referer": "https://www.trivago.com/",
   "User-Agent":
     process.env.USER_AGENT ||
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -22,6 +21,7 @@ const DEFAULT_HEADERS = {
  };
 
 export async function sendGraphQL(payload, extraHeaders = {}) {
+  console.log("DEBUG");
   const operationName = payload?.operationName ?? "accommodationSearchQuery";
   const url = `${GRAPHQL_BASE_URL}?${operationName}`;
 

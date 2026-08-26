@@ -112,15 +112,18 @@ export function buildAccommodationDealsPayload({
   currency = "VND",
   pollData = null,
   requestId = null,
+  itemCardInsights = null,
+
 }) {
   const parts = String(accommodationId).split("/");
   const ns = parts.length > 1 ? Number(parts[0]) : 100;
   const numericAccommodationId = Number(parts.pop());
+  const cheapestSource = itemCardInsights?.cheapestDeal;
 
 
   const getAccommodationDealsParams = {
     accommodationNsid: { ns, id: numericAccommodationId },
-    applicationGroup: "MAIN_WARP",
+    applicationGroup: "CONTROL",
     channel: {
       branded: {
         isStandardDate: false,
@@ -139,6 +142,11 @@ export function buildAccommodationDealsPayload({
   if (requestId) {
     getAccommodationDealsParams.parentRequestId = requestId;
   }
+
+  if (itemCardInsights) {
+    getAccommodationDealsParams.itemCardInsights = itemCardInsights;
+  }
+
 
   return {
     operationName: ACCOMMODATION_DEALS.operationName,
@@ -162,3 +170,43 @@ export function buildAccommodationDealsPayload({
     },
   };
 }
+
+function buildItemCardInsights(accommodationDeals) {
+  if (!Array.isArray(accommodationDeals) || accommodationDeals.length === 0) {
+    return null;
+  }
+
+  const displayedDeals = accommodationDeals
+    .map((deal) => ({
+      advertiserId: deal?.advertiserDetails?.nsid?.id ?? null,
+      eurocentPricePerNight: deal?.allInPricePerNight?.eurocents ?? null,
+      wasFenced: false,
+      displayAttributes: Array.isArray(deal?.displayAttributesList)
+             ? deal.displayAttributesList
+        : [],
+    }))
+    .filter((d) => d.advertiserId !== null);
+
+  if (displayedDeals.length === 0) return null;
+
+  const cheapest = displayedDeals.reduce(
+    (min, d) =>
+      (d.eurocentPricePerNight ?? Infinity) <
+      (min?.eurocentPricePerNight ?? Infinity)
+        ? d
+        : min,
+    displayedDeals[0],
+  );
+
+  return {
+    cheapestDeal: {
+      advertiserId: cheapest.advertiserId,
+      eurocentPricePerNight: cheapest.eurocentPricePerNight,
+      wasFenced: false,
+        },
+    wasMemberRateFenced: false,
+    displayedDeals,
+  };
+}
+
+export { buildItemCardInsights };
