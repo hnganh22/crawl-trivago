@@ -1,5 +1,3 @@
-
-
 export const GRAPHQL_URL = "https://www.trivago.com/graphql";
 
 export const ACCOMMODATION_SEARCH = {
@@ -8,7 +6,7 @@ export const ACCOMMODATION_SEARCH = {
     persistedQuery: {
       version: 1,
       sha256Hash:
-        "95d0a3aaed3a83c0ad5cda235d88262e15b890007d903895383b104ffff20612",
+        "2d453734af4d5859ddfd33f0a32aa3fd93322778e33d7bec4e81829a7b6c85cc",
     },
   },
 };
@@ -19,7 +17,7 @@ export const ACCOMMODATION_DEALS = {
     persistedQuery: {
       version: 1,
       sha256Hash:
-        "4cfe44ccb2a332ee1688312ef158327a9e05fc4c3bdde59b86a2e558a24731f0",
+        "f031ee152ad7f13486abf72a4fc930e471d12cf3721b64113f6f907b7c92c79e",
     },
   },
 };
@@ -61,7 +59,7 @@ export function buildAccommodationSearchPayload({
       params: {
         uiv,
         searchExecutionContext: { searchType: "MULTI_POLL_WITH_DEALS" },
-        applicationGroup: "MAIN_WARP",
+        applicationGroup: "CONTROL",
         budgetRestriction: {
           budgetType: "PRICE_PER_NIGHT",
           minPrice: 0,
@@ -112,12 +110,10 @@ export function buildAccommodationDealsPayload({
   currency = "VND",
   pollData = null,
   requestId = null,
-
 }) {
   const parts = String(accommodationId).split("/");
   const ns = parts.length > 1 ? Number(parts[0]) : 100;
   const numericAccommodationId = Number(parts.pop());
-
 
   const getAccommodationDealsParams = {
     accommodationNsid: { ns, id: numericAccommodationId },
@@ -134,11 +130,9 @@ export function buildAccommodationDealsPayload({
     uiv: [],
   };
 
-
   if (requestId) {
     getAccommodationDealsParams.parentRequestId = requestId;
   }
-
 
   return {
     operationName: ACCOMMODATION_DEALS.operationName,

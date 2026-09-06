@@ -45,9 +45,7 @@ function toBoolean(value) {
     return false;
   }
 
-  return ["true", "1", "yes"].includes(
-    String(value).toLowerCase(),
-  );
+  return ["true", "1", "yes"].includes(String(value).toLowerCase());
 }
 
 const BED_TYPE_LABELS = {
@@ -77,11 +75,7 @@ function parseBedArrangements(roomInfo) {
         const label = (key && BED_TYPE_LABELS[key]) || "Bed";
         const count = toInteger(opt?.bedCount) ?? 1;
 
-        items.push(
-          count > 1
-            ? `${count} ${label}s`
-            : `${count} ${label}`,
-        );
+        items.push(count > 1 ? `${count} ${label}s` : `${count} ${label}`);
       }
     }
   }
@@ -105,9 +99,13 @@ function parseDescriptionAmenities(description) {
     found.push("Breakfast");
   }
 
-  if (/free cancellation|miễn phí huỷ|miễn phí hủy|huy mien phi|hủy miễn phí/i.test(text)) {
-  found.push("Free Cancellation");
-}
+  if (
+    /free cancellation|miễn phí huỷ|miễn phí hủy|huy mien phi|hủy miễn phí/i.test(
+      text,
+    )
+  ) {
+    found.push("Free Cancellation");
+  }
 
   if (/sofa bed|giường sofa|giuong sofa/i.test(text)) {
     found.push("Sofa Bed");
@@ -127,17 +125,13 @@ function parseDescriptionAmenities(description) {
 function parseDealAmenities(deal) {
   const out = [];
 
-  const beds = parseBedArrangements(
-    deal?.priceDetails?.roomInfo,
-  );
+  const beds = parseBedArrangements(deal?.priceDetails?.roomInfo);
 
   for (const bed of beds) {
     out.push(bed);
   }
 
-  for (const amenity of parseDescriptionAmenities(
-    deal?.description,
-  )) {
+  for (const amenity of parseDescriptionAmenities(deal?.description)) {
     if (!out.includes(amenity)) {
       out.push(amenity);
     }
@@ -313,13 +307,11 @@ function parseDealPrice(deal) {
 }
 
 function parseDealRow(accommodation, deal, searchParams) {
-  const { latitude, longitude } =
-    parseCoordinates(accommodation);
+  const { latitude, longitude } = parseCoordinates(accommodation);
 
   const details = accommodation.accommodationDetails;
 
-  const advertiser =
-    deal?.advertiserDetails?.translatedName?.value;
+  const advertiser = deal?.advertiserDetails?.translatedName?.value;
 
   const dealAmenities = parseDealAmenities(deal);
 
@@ -333,30 +325,27 @@ function parseDealRow(accommodation, deal, searchParams) {
   );
 
   const mergedAmenities = [
-    ...new Set([
-      ...dealAmenities,
-      ...existingAmenities,
-    ]),
+    ...new Set([...dealAmenities, ...existingAmenities]),
   ];
 
   return {
     source: advertiser ?? "trivago",
 
     destination: searchParams.destination,
-    location_id: searchParams.destinationId ?? null,
+    location_id: String(searchParams.destinationId ?? ""),
 
     checkin: searchParams.checkin,
     checkout: searchParams.checkout,
     stays: searchParams.stays,
     adults: searchParams.adults,
 
-    hotel_id: firstValue(
+    hotel_id: String(
+    firstValue(
+      details?.nsid?.id,
       accommodation.hotelId,
       accommodation.id,
-      accommodation.accommodationId,
-      details?.nsid?.id
-        ? `${details.nsid.ns}-${details.nsid.id}`
-        : null,
+      accommodation.accommodationId,)
+      ?? ","
     ),
 
     hotel_name: firstValue(
@@ -376,6 +365,7 @@ function parseDealRow(accommodation, deal, searchParams) {
     ),
 
     hotel_url: firstValue(
+      deal?.clickoutUrl,
       accommodation.hotelUrl,
       accommodation.url,
       accommodation.detailsUrl,
@@ -385,16 +375,9 @@ function parseDealRow(accommodation, deal, searchParams) {
 
     price: parseDealPrice(deal),
 
-    room_name: firstValue(
-      deal?.description,
-      null,
-    ),
+    description:  "",
 
-    currency: firstValue(
-      deal?.currency,
-      accommodation.currency,
-      "VND",
-    ),
+    currency: firstValue(deal?.currency, accommodation.currency, "VND"),
 
     star_rating: parseRating(accommodation),
 
@@ -450,33 +433,23 @@ function parseDealRow(accommodation, deal, searchParams) {
 }
 
 function parseHotel(hotel, searchParams) {
-  const { latitude, longitude } =
-    parseCoordinates(hotel);
+  const { latitude, longitude } = parseCoordinates(hotel);
 
   const details = hotel.accommodationDetails;
 
   return {
     source: "trivago",
-
     destination: searchParams.destination,
-
     location_id: searchParams.destinationId ?? null,
-
     checkin: searchParams.checkin,
-
     checkout: searchParams.checkout,
-
     stays: searchParams.stays,
-
     adults: searchParams.adults,
-
     hotel_id: firstValue(
       hotel.hotelId,
       hotel.id,
       hotel.accommodationId,
-      details?.nsid?.id
-        ? `${details.nsid.ns}-${details.nsid.id}`
-        : null,
+      details?.nsid?.id ? `${details.nsid.ns}-${details.nsid.id}` : null,
     ),
 
     hotel_name: firstValue(
@@ -505,13 +478,9 @@ function parseHotel(hotel, searchParams) {
 
     price: parsePrice(hotel),
 
-    room_name: null,
+    description: null,
 
-    currency: firstValue(
-      hotel.currency,
-      hotel.price?.currency,
-      "VND",
-    ),
+    currency: firstValue(hotel.currency, hotel.price?.currency, "VND"),
 
     star_rating: parseRating(hotel),
 
@@ -625,27 +594,18 @@ class TrivagoParser {
     const rows = [];
 
     for (const acc of accommodations) {
-      const deals = Array.isArray(acc.deals)
-        ? acc.deals
-        : null;
+      const deals = Array.isArray(acc.deals) ? acc.deals : null;
 
       if (deals && deals.length > 0) {
         for (const deal of deals) {
-          const row = parseDealRow(
-            acc,
-            deal,
-            searchParams,
-          );
+          const row = parseDealRow(acc, deal, searchParams);
 
           if (row.hotel_name) {
             rows.push(row);
           }
         }
       } else {
-        const row = parseHotel(
-          acc,
-          searchParams,
-        );
+        const row = parseHotel(acc, searchParams);
 
         if (row.hotel_name) {
           rows.push(row);

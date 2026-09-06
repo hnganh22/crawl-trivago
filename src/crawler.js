@@ -136,7 +136,7 @@ class TrivagoCrawler {
                         version: 1,
 
                         sha256Hash:
-                            "6440ec202e6dd7b2bee1a0901108974c374b9cd6b7a084cdc1f03993f47ed892",
+                            "2d453734af4d5859ddfd33f0a32aa3fd93322778e33d7bec4e81829a7b6c85cc",
                     },
                 },
             };

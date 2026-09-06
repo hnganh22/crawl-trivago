@@ -23,11 +23,13 @@ const DEADLETTER_PATH = "deadletter.jsonl";
 
 
 
-async function insertHotelsWithRetry(hotels, search) {
+async function insertHotelsWithRetry(hotels, runDate, search) {
+    const effectiveRunDate = runDate || new Date().toISOString().slice(0, 10);
+
     let lastErr = null;
     for (let attempt = 1; attempt <= INSERT_RETRY; attempt++) {
         try {
-            await insertHotels(hotels);
+            await insertHotels(hotels, effectiveRunDate);
             return;
         } catch (err) {
             lastErr = err;
@@ -107,6 +109,7 @@ function pickBatch(searches) {
 }
 
 export async function crawlAll() {
+    const runDate = new Date().toISOString().slice(0, 10);
     try {
         const all = createSearches();
 
@@ -152,7 +155,7 @@ export async function crawlAll() {
                 );
 
                 if (hotels.length > 0) {
-                    await insertHotelsWithRetry(hotels, search);
+                    await insertHotelsWithRetry(hotels, runDate, search);
                 }
 
                 allHotels.push(...hotels);

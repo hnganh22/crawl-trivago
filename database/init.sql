@@ -39,14 +39,14 @@ CREATE TABLE IF NOT EXISTS hotels (
     stay_nights INT NOT NULL,
     adults INT NOT NULL,
 
-    hotel_id TEXT,
+    hotel_id TEXT NOT NULL,
     hotel_name TEXT,
     accommodation_type TEXT,
 
     hotel_url TEXT,
 
     price NUMERIC,
-    room_name TEXT,
+    description TEXT NOT NULL DEFAULT '',
     currency TEXT DEFAULT 'VND',
 
     star_rating NUMERIC,
@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS hotels (
     UNIQUE (
         source,
         hotel_id,
-        room_name,
+        description,
         run_date
     )
 );
