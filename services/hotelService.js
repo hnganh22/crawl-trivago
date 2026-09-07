@@ -26,6 +26,7 @@ const HOTEL_COLUMNS = [
   "is_popular_highlights",
   "thumbnail_url",
   "amenities",
+   "deal_id",
   "run_date",
 ];
 
@@ -76,6 +77,7 @@ function mapHotelToRow(deal, runDate) {
     deal.is_popular_highlights ?? false,
     deal.thumbnail_url ?? null,
     deal.amenities ? JSON.stringify(deal.amenities) : null,
+    deal.id ?? null,
     runDate,
   ];
 }
@@ -134,7 +136,7 @@ export async function insertHotels(hotels, runDate) {
     ON CONFLICT (
       source,
       hotel_id,
-      description,
+      deal_id,
       run_date
     )
     DO UPDATE SET

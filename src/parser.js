@@ -1,3 +1,15 @@
+import { SOURCE } from "../config/config.js";
+
+//SỬA: Ép kiểu nsid về Number để tránh lỗi khác kiểu dữ liệu trong Set
+const ALLOWED_ADVERTISER_IDS = new Set(
+  Object.values(SOURCE).map((s) => Number(s.nsid)),
+);
+
+// SỬA: Ép kiểu nsid về Number làm key cho Map
+const OTA_NAME_MAP = Object.fromEntries(
+  Object.values(SOURCE).map((s) => [Number(s.nsid), s.name]),
+);
+
 function firstValue(...values) {
   for (const value of values) {
     if (value !== undefined && value !== null && value !== "") {
@@ -81,6 +93,23 @@ function parseBedArrangements(roomInfo) {
   }
 
   return [...new Set(items)];
+}
+
+function buildRoomType(deal) {
+  const roomName = firstValue(
+    deal?.roomCategory,
+    deal?.title,
+    deal?.priceDetails?.roomInfo?.[0]?.roomTypeConcept?.translatedName?.value
+  );
+
+  const beds = parseBedArrangements(deal?.priceDetails?.roomInfo);
+  const bedText = beds.length > 0 ? beds.join(", ") : null;
+
+  if (roomName && bedText) {
+    return `${roomName} (${bedText})`;
+  }
+
+  return roomName || bedText || "Standard Room";
 }
 
 function parseDescriptionAmenities(description) {
@@ -302,19 +331,25 @@ function parseDealPrice(deal) {
       deal?.allInPricePerStay?.amount,
       deal?.pricePerNight?.amount,
       deal?.pricePerStayObject?.amount,
+      deal?.eurocentPricePerNight ? deal.eurocentPricePerNight / 100 : null,
     ),
   );
 }
 
-function parseDealRow(accommodation, deal, searchParams) {
-  const { latitude, longitude } = parseCoordinates(accommodation);
+function getAdvertiserId(deal) {
+  const rawId = firstValue(deal?.advertiserDetails?.nsid?.id, deal?.advertiserId);
+  return rawId != null ? Number(rawId) : null;
+}
 
+
+function parseDealRow(accommodation, deal, searchParams) {
+  const advertiserName = deal?.advertiserDetails?.translatedName?.value;
+  const advertiserId = getAdvertiserId(deal);
+
+  const { latitude, longitude } = parseCoordinates(accommodation);
   const details = accommodation.accommodationDetails;
 
-  const advertiser = deal?.advertiserDetails?.translatedName?.value;
-
   const dealAmenities = parseDealAmenities(deal);
-
   const existingAmenities = parseAmenities(
     firstValue(
       accommodation.amenities,
@@ -328,8 +363,21 @@ function parseDealRow(accommodation, deal, searchParams) {
     ...new Set([...dealAmenities, ...existingAmenities]),
   ];
 
+  //_ THÊM: Fallback description nhiều tầng
+  const rawDescription = firstValue(
+    deal?.description,
+    deal?.title,
+    deal?.roomCategory,
+    deal?.priceDetails?.roomInfo?.[0]?.roomTypeConcept?.translatedName?.value,
+    accommodation?.description,
+    dealAmenities.length > 0 ? dealAmenities.join(" - ") : null,
+  );
+
   return {
-    source: advertiser ?? "trivago",
+    source:
+      advertiserName ??
+      OTA_NAME_MAP[advertiserId] ??
+      (advertiserId != null ? `OTA_${advertiserId}` : "trivago"),
 
     destination: searchParams.destination,
     location_id: String(searchParams.destinationId ?? ""),
@@ -340,12 +388,12 @@ function parseDealRow(accommodation, deal, searchParams) {
     adults: searchParams.adults,
 
     hotel_id: String(
-    firstValue(
-      details?.nsid?.id,
-      accommodation.hotelId,
-      accommodation.id,
-      accommodation.accommodationId,)
-      ?? ","
+      firstValue(
+        details?.nsid?.id,
+        accommodation.hotelId,
+        accommodation.id,
+        accommodation.accommodationId,
+      ) ?? "", 
     ),
 
     hotel_name: firstValue(
@@ -375,8 +423,9 @@ function parseDealRow(accommodation, deal, searchParams) {
 
     price: parseDealPrice(deal),
 
-    description:  "",
+    description: (rawDescription ?? "").trim()|| buildRoomType(deal),
 
+    deal_id: String(deal?.id ?? ""),
     currency: firstValue(deal?.currency, accommodation.currency, "VND"),
 
     star_rating: parseRating(accommodation),
@@ -432,117 +481,6 @@ function parseDealRow(accommodation, deal, searchParams) {
   };
 }
 
-function parseHotel(hotel, searchParams) {
-  const { latitude, longitude } = parseCoordinates(hotel);
-
-  const details = hotel.accommodationDetails;
-
-  return {
-    source: "trivago",
-    destination: searchParams.destination,
-    location_id: searchParams.destinationId ?? null,
-    checkin: searchParams.checkin,
-    checkout: searchParams.checkout,
-    stays: searchParams.stays,
-    adults: searchParams.adults,
-    hotel_id: firstValue(
-      hotel.hotelId,
-      hotel.id,
-      hotel.accommodationId,
-      details?.nsid?.id ? `${details.nsid.ns}-${details.nsid.id}` : null,
-    ),
-
-    hotel_name: firstValue(
-      hotel.hotelName,
-      hotel.name,
-      hotel.title,
-      hotel.accommodationName,
-      details?.translatedName?.value,
-    ),
-
-    accommodation_type: firstValue(
-      hotel.accommodationType,
-      hotel.type,
-      hotel.propertyType,
-      hotel.category?.name,
-      details?.typeObject?.translatedName?.value,
-    ),
-
-    hotel_url: firstValue(
-      hotel.hotelUrl,
-      hotel.url,
-      hotel.detailsUrl,
-      hotel.links?.hotel,
-      details?.userFriendlyUrl?.slug,
-    ),
-
-    price: parsePrice(hotel),
-
-    description: null,
-
-    currency: firstValue(hotel.currency, hotel.price?.currency, "VND"),
-
-    star_rating: parseRating(hotel),
-
-    review_score: parseReviewScore(hotel),
-
-    review_count: parseReviewCount(hotel),
-
-    review_label: firstValue(
-      hotel.reviewLabel,
-      hotel.rating?.label,
-      hotel.reviews?.label,
-    ),
-
-    address: firstValue(
-      hotel.address,
-      hotel.location?.address,
-      hotel.location?.formattedAddress,
-      details?.address,
-      details?.locality?.translatedName?.value,
-    ),
-
-    latitude,
-
-    longitude,
-
-    distance_reference: firstValue(
-      hotel.distanceReference,
-      hotel.distance,
-      hotel.location?.distance,
-      hotel.distanceLabel?.value,
-    ),
-
-    is_popular_highlights: toBoolean(
-      firstValue(
-        hotel.isPopularHighlights,
-        hotel.isPopular,
-        hotel.popular,
-        hotel.highlights?.popular,
-        details?.highlights?.popular,
-      ),
-    ),
-
-    thumbnail_url: firstValue(
-      hotel.thumbnailUrl,
-      hotel.image,
-      hotel.imageUrl,
-      hotel.thumbnail,
-      hotel.images?.[0]?.url,
-      details?.mainImageObject?.path,
-    ),
-
-    amenities: parseAmenities(
-      firstValue(
-        hotel.amenities,
-        hotel.facilities,
-        hotel.features,
-        details?.scoredAspectThemes,
-      ),
-    ),
-  };
-}
-
 function findHotels(data) {
   if (!data) {
     return [];
@@ -594,27 +532,67 @@ class TrivagoParser {
     const rows = [];
 
     for (const acc of accommodations) {
-      const deals = Array.isArray(acc.deals) ? acc.deals : null;
+      const deals = extractDeals(acc);
 
-      if (deals && deals.length > 0) {
-        for (const deal of deals) {
-          const row = parseDealRow(acc, deal, searchParams);
+      //_ SỬA: Dùng getAdvertiserId thay cho d?.advertiserDetails?.nsid?.id bị thiếu
+      const allowed = deals.filter((d) => {
+        const advId = getAdvertiserId(d);
+        return advId != null && ALLOWED_ADVERTISER_IDS.has(advId);
+      });
 
-          if (row.hotel_name) {
-            rows.push(row);
-          }
-        }
-      } else {
-        const row = parseHotel(acc, searchParams);
-
-        if (row.hotel_name) {
-          rows.push(row);
-        }
+      // Mỗi deal → 1 row
+      for (const deal of allowed) {
+        const row = parseDealRow(acc, deal, searchParams);
+        if (row.hotel_name) rows.push(row);
       }
     }
-
     return rows;
   }
+}
+
+function extractDeals(acc) {
+ 
+//   const field = acc?.deals ?? acc?.displayedDeals;
+//   if (!field) return [];
+
+//   if (!Array.isArray(field) && typeof field === "object") {
+//     const allDeals = [
+//       field.best,
+//       field.cheapest,
+//       ...(Array.isArray(field.alternatives) ? field.alternatives : []),
+//     ].filter(Boolean);
+
+//     const seen = new Map();
+//     for (const deal of allDeals) {
+//       const id = String(deal?.id ?? getAdvertiserId(deal) ?? Math.random());
+//       if (id && !seen.has(id)) seen.set(id, deal);
+//     }
+//     return [...seen.values()];
+//   }
+
+//   // Dạng array từ enrichWithDeals
+//   if (Array.isArray(field)) return field;
+
+//   return [];
+// }
+const searchDeals = acc?.deals;
+    const enrichDeals = acc?.enrichedDeals; // 
+    
+    let allDeals = [];
+    
+    if (Array.isArray(enrichDeals) && enrichDeals.length > 0) {
+        allDeals = enrichDeals;
+    }
+    // không có description nhưng vẫn có giá
+    else if (searchDeals && typeof searchDeals === 'object') {
+        allDeals = [
+            searchDeals.best,
+            searchDeals.cheapest,
+            ...(Array.isArray(searchDeals.alternatives) ? searchDeals.alternatives : []),
+        ].filter(Boolean);
+    }
+    
+    return [...new Map(allDeals.map(d => [String(d?.id ?? ""), d])).values()];
 }
 
 export default new TrivagoParser();

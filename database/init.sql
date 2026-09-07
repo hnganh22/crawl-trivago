@@ -66,13 +66,15 @@ CREATE TABLE IF NOT EXISTS hotels (
 
     amenities JSONB,
 
+    deal_id TEXT, 
+
     run_date DATE NOT NULL,
     crawled_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 
     UNIQUE (
         source,
         hotel_id,
-        description,
+        deal_id,
         run_date
     )
 );
@@ -88,3 +90,8 @@ ON hotels (destination, checkin_date);
 
 CREATE INDEX IF NOT EXISTS idx_hotels_amenities
 ON hotels USING GIN (amenities);
+
+ALTER TABLE hotels ADD COLUMN deal_id TEXT;
+ALTER TABLE hotels DROP CONSTRAINT hotels_source_hotel_id_description_run_date_key;
+ALTER TABLE hotels ADD CONSTRAINT hotels_deal_unique 
+    UNIQUE (source, hotel_id, deal_id, run_date);

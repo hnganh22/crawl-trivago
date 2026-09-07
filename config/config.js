@@ -1,4 +1,4 @@
-export const BASE_URL = "https://www.trivago.com/";
+export const BASE_URL = "https://www.trivago.vn/";
 
 export const DESTINATION = {
     "Ha Noi":        "200-68088",
@@ -20,8 +20,9 @@ export const STAYS = [1,4];
 export const ADULTS = [1,2]; 
 
 export const SOURCE = {
-    AGODA: "Agoda",
-    BOOKING: "Booking.com"
+    AGODA:   { nsid: 395, name: "Agoda" },
+    BOOKING: { nsid: 626, name: "Booking.com"},
+    TRIP: { nsid: 634, name: "Trip.com"}
 };
 
 export const HEADERS = {

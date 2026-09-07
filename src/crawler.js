@@ -18,14 +18,11 @@ const MAX_POLL_ATTEMPTS = 10;
 const POLL_INTERVAL = 1000;
 const DEAL_DELAY = 300;
 
-const OTA_KEYWORDS = ["agoda", "booking"];
+const ALLOWED_ADVERTISER_IDS = new Set([395, 626, 634]);
 
-const isAllowedOta = (name) => {
-    const normalized = (name ?? "").trim().toLowerCase();
-
-    return OTA_KEYWORDS.some((keyword) =>
-        normalized.includes(keyword),
-    );
+const isAllowedOta = (advertiser) => {
+    const id = advertiser?.nsid?.id;
+    return id != null && ALLOWED_ADVERTISER_IDS.has(id);
 };
 
 // Sử dụng trực tiếp URL đã sinh từ link generator
@@ -244,19 +241,18 @@ class TrivagoCrawler {
                 { Referer: referer },
             );
 
-            //console.log(` Response deals cho ${accommodationId}:`, {
-            //    hasGetDeals: !!data?.getAccommodationDeals,
-            //   dealsCount: data?.getAccommodationDeals?.deals?.length ?? 0
-            //});
-
             const deals = data?.getAccommodationDeals?.deals ?? [];
 
+            if (deals.length > 0) {
+        accommodation.enrichedDeals = deals.filter(d => 
+            isAllowedOta(d?.advertiserDetails)
+        );
+    }
+    
             accommodation.deals = deals.filter((deal) =>
-                isAllowedOta(
-                    deal?.advertiserDetails?.translatedName?.value,
-                ),
+              isAllowedOta(deal?.advertiserDetails),
             );
-
+            
             recordSuccess();
 
             console.log(
