@@ -1,0 +1,21 @@
+const { chromium } = require('playwright');
+
+const { build_url } = require('/Users/tide/trivago/api/linkgenerator/config.py')
+(async () => {
+  const browser = await chromium.launch({
+    headless: false,
+    channel: 'chrome',
+  });
+
+  const page = await browser.newPage();
+
+  console.log('Đang mở Trivago...');
+  await page.goto('https://www.trivago.vn/', {
+    waitUntil: 'networkidle',
+  });
+
+  const title = await page.title()
+
+  await page.waitForTimeout(5000);
+  await browser.close();
+})();
