@@ -1,19 +1,13 @@
 const { parentPort } = require("worker_threads");
-// const { chromium } = require("playwright");
 const { parseHotel } = require("./src/parser");
+const { getBrowser } = require("./browserManager");
 
 parentPort.on("message", async (task) => {
-  let browser = null;
+  let browserInstance = null;
 
   try {
-    // browser = await chromium.launch({ headless: false });
-
-    // const context = await browser.newContext({
-    //   viewport: { width: 1280, height: 800 },
-    //   userAgent:
-    //     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    //     permisions:[],
-    // });
+    const { browser, context, page } = await getBrowser();
+    browserInstance = browser;
 
     await context.addCookies([
       {
@@ -29,8 +23,6 @@ parentPort.on("message", async (task) => {
         path: "/",
       }
     ]);
-
-    const page = await context.newPage();
 
     let cleanUrl = task.url;
     if ((cleanUrl.match(/\?/g) || []).length > 1) {
@@ -66,7 +58,7 @@ parentPort.on("message", async (task) => {
   } catch (error) {
     parentPort.postMessage({ status: "error", error: error.message });
   } finally {
-    if (browser) await browser.close();
+    if (browserInstance) await browserInstance.close();
   }
 });
 

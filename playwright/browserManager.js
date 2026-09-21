@@ -1,8 +1,8 @@
 
-import {FingerprintGenerator} from "fingerprint-generator";
-import {FingerprintInjector} from "fingerprint-injector";
-import {chrome} from "playwright";
-import {TYPE_HELPER} from '../utils/constants.js'
+const {FingerprintGenerator} = require("fingerprint-generator");
+const {FingerprintInjector} = require ("fingerprint-injector");
+const {chromium} = require ("playwright");
+//const {TYPE_HELPER} = require( "../utils/constants.js");
 
 
 const getBrowserOptions=()=>{
@@ -29,7 +29,7 @@ const getBrowserOptions=()=>{
    return options
 }
 
-export const getBrowser = async () => {
+const getBrowser = async () => {
     const fingerprintGenerator = new FingerprintGenerator();
     const browserFingerprintWithHeaders = fingerprintGenerator.getFingerprint({
         devices: ['desktop'],
@@ -39,12 +39,15 @@ export const getBrowser = async () => {
     const fingerprintInjector = new FingerprintInjector();
     const {fingerprint} = browserFingerprintWithHeaders;
     const options=getBrowserOptions()
-    const browser = await chrome.launch(options);
+    const browser = await chromium.launch(options);
     const context = await browser.newContext({
         userAgent: fingerprint.navigator.userAgent,
         locale: fingerprint.navigator.language,
         viewport: fingerprint.screen,
     });
     await fingerprintInjector.attachFingerprintToPlaywright(context, browserFingerprintWithHeaders);
-    return browser
+    const page = await context.newPage();
+    return {browser, context, page};
 }
+
+module.exports = { getBrowser };
