@@ -2,7 +2,6 @@
 const {FingerprintGenerator} = require("fingerprint-generator");
 const {FingerprintInjector} = require ("fingerprint-injector");
 const {chromium} = require ("playwright");
-//const {TYPE_HELPER} = require( "../utils/constants.js");
 
 
 const getBrowserOptions=()=>{
